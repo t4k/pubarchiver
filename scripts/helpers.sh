@@ -19,6 +19,10 @@
 # * SLACK_CHANNEL: Slack channel to send notifications of failure or success
 # * SLACK_CLI_TOKEN: used by slack-cli for the Slack API token
 #
+# For email delivery via Mailgun API (preferred), also set:
+# * MAILGUN_API_KEY: API key for Mailgun service
+# * MAILGUN_DOMAIN: domain configured in Mailgun
+#
 # The code below also assumes that programs "pubarchiver" and "slack" (the
 # latter from https://github.com/rockymadden/slack-cli) are on the calling
 # user's command search $path.
@@ -52,7 +56,7 @@ intervention is required. Additional information may be found here:
 This message was produced by $mainscript on `hostname`.
 EOF
 )
-        echo "$body" | mail -s"pubarchiver failure $today" $EMAIL_FAILURE
+        echo "$body" | run_mail -s "pubarchiver failure $today" $EMAIL_FAILURE
         run_slack chat send --channel $SLACK_CHANNEL --color "#ff0000" \
               --title "Error: unable to upload micropublication.org to $destination" \
               --text "$mainscript on `hostname` cannot find program 'pubarchiver'"
@@ -86,7 +90,7 @@ bottom the log file to see what was the last action attempted.
 Today's upload to $destination has been stopped.
 EOF
 )
-        echo "$body" | mail -s"pubarchiver failure $today" -a $log $EMAIL_FAILURE
+        echo "$body" | run_mail -s "pubarchiver failure $today" -a $log $EMAIL_FAILURE
         run_slack chat send --channel $SLACK_CHANNEL --color "#ff0000" \
               --title "Error: unable to complete $destination archiving for micropublication.org" \
               --text "pubarchiver failed to create archive file for $destination. Cause: $cause."
@@ -94,6 +98,85 @@ EOF
               --comment "Here is the pubarchiver run log:"
         exit $status
     fi
+}
+
+run_mail() {
+    # Send email via Mailgun API (if configured) or fall back to system mail.
+    # Reads email body from stdin and supports the following arguments:
+    #   -s SUBJECT   The subject line for the email
+    #   -a FILENAME  Attach file to the email (passed as multipart to Mailgun,
+    #                or via -a flag to system mail)
+    #   RECIPIENT    The email address(es) to send to
+    #
+    # Priority:
+    #   1. If MAILGUN_API_KEY is set, sends via Mailgun API
+    #   2. Otherwise, uses system mail command if available
+    #   3. If neither available, logs a message and returns silently (exit 0)
+    #
+    # Environment variables used:
+    #   MAILGUN_API_KEY, MAILGUN_DOMAIN (for Mailgun)
+    #   $log (file path for logging when mail is unavailable)
+
+    local SUBJECT=""
+    local RECIPIENT=""
+    local ATTACHMENTS=()
+    local BODY
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -s)
+                SUBJECT="$2"
+                shift 2
+                ;;
+            -a)
+                ATTACHMENTS+=("$2")
+                shift 2
+                ;;
+            *)
+                RECIPIENT="$1"
+                shift
+                ;;
+        esac
+    done
+
+    # Read email body from stdin
+    BODY="$(cat)"
+
+    # Try Mailgun API first (preferred if configured)
+    if [[ -n "${MAILGUN_API_KEY:-}" ]]; then
+        local curl_args=(
+            -sS --fail
+            -u "api:${MAILGUN_API_KEY}"
+            "https://api.mailgun.net/v3/${MAILGUN_DOMAIN}/messages"
+            -F "from=noreply@${MAILGUN_DOMAIN}"
+            -F "to=${RECIPIENT}"
+            -F "subject=${SUBJECT}"
+            -F "text=${BODY}"
+        )
+        # Add attachments if present (Mailgun API syntax)
+        for attachment in "${ATTACHMENTS[@]}"; do
+            curl_args+=(-F "attachment=@${attachment}")
+        done
+        curl "${curl_args[@]}" >/dev/null 2>&1
+        return $?
+    fi
+
+    # Fall back to system mail
+    if command -v mail >/dev/null 2>&1; then
+        local mail_cmd="echo \"$BODY\" | mail -s \"$SUBJECT\""
+        # Add attachments if present (system mail syntax)
+        for attachment in "${ATTACHMENTS[@]}"; do
+            mail_cmd+=" -a \"$attachment\""
+        done
+        mail_cmd+=" \"$RECIPIENT\""
+        eval "$mail_cmd"
+        return $?
+    fi
+
+    # No mail method available; log and return silently
+    echo "Unable to send email (mail command not available)" >> $log
+    return 0
 }
 
 run_slack() {
@@ -130,7 +213,7 @@ intervention is required. Additional information may be found here:
 This message was produced by $mainscript on `hostname`.
 EOF
 )
-        echo "$body" | mail -s"PMC upload process failure $today" $EMAIL_FAILURE
+        echo "$body" | run_mail -s "PMC upload process failure $today" $EMAIL_FAILURE
         run_slack chat send --channel $SLACK_CHANNEL --color "#ff0000" \
               --title "Error: unable to upload micropublication.org to $destination" \
               --text "$mainscript on `hostname` cannot find program 'curl'"
@@ -157,7 +240,7 @@ bottom the log file to see what was the last action attempted.
 Today's upload to $destination has been stopped.
 EOF
 )
-        echo "$body" | mail -s"PMC upload failure $today" -a $log $EMAIL_FAILURE
+        echo "$body" | run_mail -s "PMC upload failure $today" -a $log $EMAIL_FAILURE
         run_slack chat send --channel $SLACK_CHANNEL --color "#ff0000" \
               --title "Error: unable to complete PMC upload for micropublication.org" \
               --text "$mainscript unable to ftp to $destination. Cause: $problem."
