@@ -69,6 +69,9 @@ source $scriptdir/helpers.sh
 
 # Do the real work ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+# Set the PMC FTP address, allowing override via environment variable.
+pmc_ftp_address=${PMC_FTP_ADDRESS:-ftp://ftp-private.ncbi.nlm.nih.gov/}
+
 # Before doing anything else, create the output directory.
 mkdir -p $outputdir
 
@@ -117,7 +120,7 @@ else
         echo "=== FTP'ing file using curl ===" >> $log
         run_curl --retry 5 --user $PMC_USER:$PMC_PASS \
             -T "{$(echo $outputdir/micropublication-org/*.zip | tr ' ' ',')}" \
-            ftp://ftp-private.ncbi.nlm.nih.gov/
+            $pmc_ftp_address
     fi
 
     # If we get this far, write out a date stamp file to indicate that things
