@@ -69,8 +69,8 @@ source $scriptdir/helpers.sh
 
 # Do the real work ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-# Set the Portico SFTP address, allowing override via environment variable.
-portico_sftp_address=${PORTICO_SFTP_ADDRESS:-sftp://ftp.portico.org}
+# Set the Portico FTP address, allowing override via environment variable.
+portico_ftp_address=${PORTICO_FTP_ADDRESS:-sftp://ftp.portico.org}
 
 # Before doing anything else, create the output directory.
 mkdir -p $outputdir
@@ -130,7 +130,7 @@ if [[ $lines -gt 1 ]]; then
     archivefile=$outputdir/micropublication-org.zip
     echo "" >> $log
     echo "=== FTP'ing file using curl ===" >> $log
-    curl -k -T $archivefile $portico_sftp_address \
+    curl -k -T $archivefile $portico_ftp_address \
         --user $PORTICO_USER:$PORTICO_PASS >> $log 2>&1
 fi
 
